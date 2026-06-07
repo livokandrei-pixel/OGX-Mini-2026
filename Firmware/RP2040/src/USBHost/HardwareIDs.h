@@ -14,6 +14,7 @@ struct HardwareID
 // DInput / generic HID; includes Xbox controllers when presented as HID (XInput uses class driver when possible)
 static const HardwareID DINPUT_IDS[] =
 {
+    {0x0583, 0xA009}, // Genius Max Fire G-12U Vibration
     {0x044F, 0xB324}, // ThrustMaster Dual Trigger (PS3 mode)
     {0x0738, 0x8818}, // MadCatz Street Fighter IV Arcade FightStick
     {0x0810, 0x0003}, // Personal Communication Systems, Inc. Generic
