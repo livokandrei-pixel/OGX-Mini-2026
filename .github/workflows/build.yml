@@ -13,8 +13,8 @@ jobs:
 
     strategy:
       matrix:
-        # Define the target boards you want to compile for
-        board: [PI_PICO, PI_PICO2, PI_PICOW, RP_ZERO]
+        # Define the corrected board names here
+        board: [PI_PICO, PI_PICO2, PI_PICOW, RP2040_ZERO]
 
     steps:
       - name: Checkout repository
@@ -28,7 +28,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build gcc-arm-none-eabi libnewlib-arm-none-eabi
 
-      - name: Configure CMake
+    - name: Configure CMake
         run: |
           cmake -S Firmware/RP2040 \
                 -B build_${{ matrix.board }} \
