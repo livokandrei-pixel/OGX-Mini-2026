@@ -20,6 +20,8 @@ void DInputHost::process_report(Gamepad& gamepad, uint8_t address, uint8_t insta
         return;
     }
 
+    std::memcpy(&prev_in_report_, in_report, sizeof(DInput::InReport));
+
     // Запрашиваем VID и PID текущего подключенного устройства через TinyUSB
     uint16_t vid = 0;
     uint16_t pid = 0;
@@ -27,52 +29,57 @@ void DInputHost::process_report(Gamepad& gamepad, uint8_t address, uint8_t insta
 
     Gamepad::PadIn gp_in;
 
-    // ПЕРСОНАЛЬНЫЙ ДРАЙВЕР ДЛЯ GENIUS MAXFIRE G-12U VIBRATION
+    // ОКОНЧАТЕЛЬНЫЙ ИСПРАВЛЕННЫЙ ДРАЙВЕР ДЛЯ GENIUS MAXFIRE G-12U VIBRATION
     if (vid == 0x0583 && pid == 0xA009)
     {
-        // Безопасная проверка длины пакета данных устройства
         if (len < 6)
         {
             tuh_hid_receive_report(address, instance);
             return;
         }
 
-        // 1. Извлекаем оси стиков по карте из вашего лога захвата SDL (Байты 0, 1, 2, 3)
-        uint8_t raw_lx = report[0]; // axis 0 (axis_lstick)
-        uint8_t raw_ly = report[1]; // axis 1 (axis_lstick)
-        uint8_t raw_rx = report[2]; // axis 2 (axis_rstick)
-        uint8_t raw_ry = report[3]; // axis 3 (axis_rstick)
+        // 1. Считываем оси стиков напрямую из первых 4 байт (Байты 0, 1, 2, 3)
+        uint8_t raw_lx = report[0]; 
+        uint8_t raw_ly = report[1]; 
+        uint8_t raw_rx = report[2]; 
+        uint8_t raw_ry = report[3]; 
 
-        // Масштабируем оси в int16_t (-32768..32767) с инверсией Y-направлений для Xbox стандарта
+        // Масштабируем оси в int16_t (-32768..32767) с инверсией Y для Xbox стандарта
         gp_in.joystick_lx = (static_cast<int16_t>(raw_lx) - 128) * 256;
         gp_in.joystick_ly = (static_cast<int16_t>(raw_ly) - 128) * -256;
         gp_in.joystick_rx = (static_cast<int16_t>(raw_rx) - 128) * 256;
         gp_in.joystick_ry = (static_cast<int16_t>(raw_ry) - 128) * -256;
 
-        // 2. Извлекаем кнопки напрямую из сырого пакета (Байты 4 и 5)
-        uint8_t b1 = report[4]; // Кнопки 1-8 (в pygame это индексы 0-7)
-        uint8_t b2 = report[5]; // Кнопки 9-12 (в pygame это индексы 8-11) и Hat-переключатель
+        // 2. Читаем байты кнопок напрямую с аппаратной инверсией (~)
+        uint8_t b1 = ~report[4]; // Основные физические кнопки
+        uint8_t b2 = ~report[5]; // Сервисные кнопки и Hat
 
-        // Побитовый маппинг кнопок 1 в 1 под раскладку оригинального Xbox
-        if (b1 & 0x01) gp_in.buttons |= gamepad.MAP_BUTTON_A;     // button 0 (face_1) -> Кнопка 1
-        if (b1 & 0x02) gp_in.buttons |= gamepad.MAP_BUTTON_B;     // button 1 (face_2) -> Кнопка 2
-        if (b1 & 0x04) gp_in.buttons |= gamepad.MAP_BUTTON_X;     // button 2 (face_3) -> Кнопка 3
-        if (b1 & 0x08) gp_in.buttons |= gamepad.MAP_BUTTON_Y;     // button 3 (face_4) -> Кнопка 4
-        if (b1 & 0x10) gp_in.buttons |= gamepad.MAP_BUTTON_LB;    // button 4 (shoulder_l) -> Кнопка 5
-        if (b1 & 0x20) gp_in.buttons |= gamepad.MAP_BUTTON_RB;    // button 5 (shoulder_r) -> Кнопка 6
+        // ИСПРАВЛЕНИЕ РОКИРОВКИ КНОПОК (Перенаправляем биты обратно на свои места)
+        
+        // Физические кнопки 1 и 2 (были перепутаны с битами Select/Start)
+        if (b2 & 0x01) gp_in.buttons |= gamepad.MAP_BUTTON_A;     // Бит 0x01 из b2 отправляем на кнопку A (B0)
+        if (b2 & 0x02) gp_in.buttons |= gamepad.MAP_BUTTON_B;     // Бит 0x02 из b2 отправляем на кнопку B (B1)
 
-        // Цифровые курки геймпада (Кнопки 7 и 8) выводим как полноценные триггеры Xbox
-        gp_in.trigger_l = (b1 & 0x40) ? 255 : 0; // button 6 (trigger_l) -> Кнопка 7
-        gp_in.trigger_r = (b1 & 0x80) ? 255 : 0; // button 7 (trigger_r) -> Кнопка 8
+        // Физические кнопки Select и Start (теперь читаются из b1, где раньше была путаница)
+        if (b1 & 0x01) gp_in.buttons |= gamepad.MAP_BUTTON_BACK;  // Отправляем на системный Back (Select)
+        if (b1 & 0x02) gp_in.buttons |= gamepad.MAP_BUTTON_START; // Отправляем на системный Start
 
-        // Сервисные кнопки из второго байта кнопок
-        if (b2 & 0x01) gp_in.buttons |= gamepad.MAP_BUTTON_BACK;  // button 8 (select) -> Кнопка 9
-        if (b2 & 0x02) gp_in.buttons |= gamepad.MAP_BUTTON_START; // button 9 (start) -> Кнопка 10
-        if (b2 & 0x04) gp_in.buttons |= gamepad.MAP_BUTTON_L3;    // button 10 (stick_l3) -> Кнопка 11
-        if (b2 & 0x08) gp_in.buttons |= gamepad.MAP_BUTTON_R3;    // button 11 (stick_r3) -> Кнопка 12
+        // Распределяем остальные абсолютно верные физические кнопки геймпада
+        if (b1 & 0x04) gp_in.buttons |= gamepad.MAP_BUTTON_X;     // Кнопка 3 -> X
+        if (b1 & 0x08) gp_in.buttons |= gamepad.MAP_BUTTON_Y;     // Кнопка 4 -> Y
+        if (b1 & 0x10) gp_in.buttons |= gamepad.MAP_BUTTON_LB;    // Кнопка 5 -> LB
+        if (b1 & 0x20) gp_in.buttons |= gamepad.MAP_BUTTON_RB;    // Кнопка 6 -> RB
+        
+        // Нижние курки как триггеры Xbox (LT/RT)
+        gp_in.trigger_l = (b1 & 0x40) ? 255 : 0;                  // Кнопка 7 -> LT
+        gp_in.trigger_r = (b1 & 0x80) ? 255 : 0;                  // Кнопка 8 -> RT
 
-        // 3. Точный разбор крестовины (D-Pad Hat 0) из верхнего полубайта b2 (смещение на 4 бита)
-        uint8_t hat = b2 >> 4;
+        // Нажатия на сами грибки (L3 / R3) из второго байта кнопок
+        if (b2 & 0x04) gp_in.buttons |= gamepad.MAP_BUTTON_L3;    // Кнопка 11 -> L3
+        if (b2 & 0x08) gp_in.buttons |= gamepad.MAP_BUTTON_R3;    // Кнопка 12 -> R3
+
+        // 3. Разбор крестовины (D-Pad Hat 0). Направления берем чистыми из верхнего полубайта b2
+        uint8_t hat = report[5] >> 4;
 
         switch (hat)
         {
@@ -84,7 +91,7 @@ void DInputHost::process_report(Gamepad& gamepad, uint8_t address, uint8_t insta
             case 5: gp_in.dpad |= gamepad.MAP_DPAD_DOWN | gamepad.MAP_DPAD_LEFT; break;
             case 6: gp_in.dpad |= gamepad.MAP_DPAD_LEFT; break;
             case 7: gp_in.dpad |= gamepad.MAP_DPAD_UP | gamepad.MAP_DPAD_LEFT; break;
-            default: break; // Значения 8..15 означают состояние покоя крестовины
+            default: break; 
         }
     }
     else
@@ -152,9 +159,7 @@ void DInputHost::process_report(Gamepad& gamepad, uint8_t address, uint8_t insta
     }
 
     gamepad.set_pad_in(gp_in);
-
     tuh_hid_receive_report(address, instance);
-    std::memcpy(&prev_in_report_, in_report, sizeof(DInput::InReport));
 }
 
 bool DInputHost::send_feedback(Gamepad& gamepad, uint8_t address, uint8_t instance)
