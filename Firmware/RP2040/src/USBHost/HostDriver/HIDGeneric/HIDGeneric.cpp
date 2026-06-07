@@ -41,6 +41,10 @@ void HIDHost::process_report(Gamepad& gamepad, uint8_t address, uint8_t instance
     // ПЕРСОНАЛЬНЫЙ ДРАЙВЕР ДЛЯ GENIUS MAXFIRE G-12U VIBRATION (С АНАЛОГАМИ)
     if (vid == 0x0583 && pid == 0xA009)
     {
+        // ВРЕМЕННЫЙ ЛОГ: Выводит длину пакета и первые 8 байт в шестнадцатеричном виде (HEX) в COM-порт
+        printf("[Genius] len:%d -> %02X %02X %02X %02X %02X %02X %02X %02X\n", 
+               len, report[0], report[1], report[2], report[3], report[4], report[5], report[6], report[7]);
+
         // 1. Извлекаем позиции левого аналогового стика (Байты 0 и 1, центр 128)
         uint8_t raw_lx = report[0];
         uint8_t raw_ly = report[1];
@@ -123,20 +127,20 @@ void HIDHost::process_report(Gamepad& gamepad, uint8_t address, uint8_t instance
         std::tie(gp_in.joystick_lx, gp_in.joystick_ly) = gamepad.scale_joystick_l(hid_joystick_data_.X, hid_joystick_data_.Y);
         std::tie(gp_in.joystick_rx, gp_in.joystick_ry) = gamepad.scale_joystick_r(hid_joystick_data_.Z, hid_joystick_data_.Rz);
 
-        if (hid_joystick_data_.buttons[1])  gp_in.buttons |= gamepad.MAP_BUTTON_X;
-        if (hid_joystick_data_.buttons[2])  gp_in.buttons |= gamepad.MAP_BUTTON_A;
-        if (hid_joystick_data_.buttons[3])  gp_in.buttons |= gamepad.MAP_BUTTON_B;
-        if (hid_joystick_data_.buttons[4])  gp_in.buttons |= gamepad.MAP_BUTTON_Y;
-        if (hid_joystick_data_.buttons[5])  gp_in.buttons |= gamepad.MAP_BUTTON_LB;
-        if (hid_joystick_data_.buttons[6])  gp_in.buttons |= gamepad.MAP_BUTTON_RB;
-        if (hid_joystick_data_.buttons[7])  gp_in.trigger_l = Range::MAX<uint8_t>;
-        if (hid_joystick_data_.buttons[8])  gp_in.trigger_r = Range::MAX<uint8_t>;
-        if (hid_joystick_data_.buttons[9])  gp_in.buttons |= gamepad.MAP_BUTTON_BACK;
-        if (hid_joystick_data_.buttons[10]) gp_in.buttons |= gamepad.MAP_BUTTON_START;
-        if (hid_joystick_data_.buttons[11]) gp_in.buttons |= gamepad.MAP_BUTTON_L3;
-        if (hid_joystick_data_.buttons[12]) gp_in.buttons |= gamepad.MAP_BUTTON_R3;
-        if (hid_joystick_data_.buttons[13]) gp_in.buttons |= gamepad.MAP_BUTTON_SYS;
-        if (hid_joystick_data_.buttons[14]) gp_in.buttons |= gamepad.MAP_BUTTON_MISC;
+        if (hid_joystick_data_.buttons)  gp_in.buttons |= gamepad.MAP_BUTTON_X;
+        if (hid_joystick_data_.buttons)  gp_in.buttons |= gamepad.MAP_BUTTON_A;
+        if (hid_joystick_data_.buttons)  gp_in.buttons |= gamepad.MAP_BUTTON_B;
+        if (hid_joystick_data_.buttons)  gp_in.buttons |= gamepad.MAP_BUTTON_Y;
+        if (hid_joystick_data_.buttons)  gp_in.buttons |= gamepad.MAP_BUTTON_LB;
+        if (hid_joystick_data_.buttons)  gp_in.buttons |= gamepad.MAP_BUTTON_RB;
+        if (hid_joystick_data_.buttons)  gp_in.trigger_l = Range::MAX<uint8_t>;
+        if (hid_joystick_data_.buttons)  gp_in.trigger_r = Range::MAX<uint8_t>;
+        if (hid_joystick_data_.buttons)  gp_in.buttons |= gamepad.MAP_BUTTON_BACK;
+        if (hid_joystick_data_.buttons) gp_in.buttons |= gamepad.MAP_BUTTON_START;
+        if (hid_joystick_data_.buttons) gp_in.buttons |= gamepad.MAP_BUTTON_L3;
+        if (hid_joystick_data_.buttons) gp_in.buttons |= gamepad.MAP_BUTTON_R3;
+        if (hid_joystick_data_.buttons) gp_in.buttons |= gamepad.MAP_BUTTON_SYS;
+        if (hid_joystick_data_.buttons) gp_in.buttons |= gamepad.MAP_BUTTON_MISC;
     }
 
     gamepad.set_pad_in(gp_in);
