@@ -29,11 +29,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Dependencies
-        run: sudo apt install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
-
-      - name: libusb-1.0-0-dev and pkg-config
-        run:  sudo apt-get update && sudo apt-get install -y cmake ninja-build gcc-arm-none-eabi libnewlib-arm-none-eabi libusb-1.0-0-dev pkg-config
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib libusb-1.0-0-dev pkg-config
 
       - name: Get Pico SDK
         run: git clone --branch 2.1.0 --recurse-submodules https://github.com/raspberrypi/pico-sdk.git
@@ -45,16 +44,36 @@ jobs:
         run: |
           cd build
           rm -rf ./*
-          cmake -DPICO_SDK_PATH=${{ github.workspace }}/pico-sdk \
+          
+          # Определение PICO_BOARD для корректной компиляции на RP2350
+          if [[ "${{ matrix.board }}" == "PI_PICO2" || "${{ matrix.board }}" == "PI_PICO2W" ]]; then
+            BOARD_TARGET="pico2"
+          elif [[ "${{ matrix.board }}" == "PI_PICOW" ]]; then
+            BOARD_TARGET="pico_w"
+          else
+            BOARD_TARGET="pico"
+          fi
+
+          # Конфигурация через Ninja
+          cmake -G Ninja \
+                -DPICO_SDK_PATH=${{ github.workspace }}/pico-sdk \
+                -DPICO_BOARD=$BOARD_TARGET \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DOGXM_BOARD=${{ matrix.board }} \
                 -DMAX_GAMEPADS=1 \
                 ../Firmware/RP2040
-          cmake --build .
+          
+          # Параллельная сборка на максимум доступных ядер
+          cmake --build . --parallel $(nproc)
 
-          # Move the generated .uf2 file to output/ without knowing the exact version
+          # Безопасный поиск и копирование UF2 файла прошивки
           FILE=$(find . -maxdepth 1 -name "OGX-Mini-*-${{ matrix.board }}.uf2" | head -n 1)
-          cp "$FILE" ../output/
+          if [ -n "$FILE" ]; then
+            cp "$FILE" ../output/
+            echo "Successfully copied $FILE to output directory."
+          else
+            echo "Error: Output .uf2 file for ${{ matrix.board }} not found!" && exit 1
+          fi
 
       - name: Upload UF2 Artifact
         uses: actions/upload-artifact@v4
@@ -65,26 +84,30 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
 
     steps:
       - name: Download All Artifacts
         uses: actions/download-artifact@v4
         with:
-          path: output
+          path: combined_output
+          merge-multiple: true # Сливает файлы из всех матриц в одну общую папку
 
       - name: List Files
-        run: ls -lh output/**
+        run: ls -lh combined_output/
 
       - name: Create Draft Release
         uses: softprops/action-gh-release@v2.2.2
-        #if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         with:
           tag_name: latest
+          name: "OGX-Mini Bleeding Edge Build"
           draft: true
-          files: output/**/*.uf2
+          prerelease: true
+          files: combined_output/*.uf2
 
       - name: Create Tagged Release
         uses: softprops/action-gh-release@v2.2.2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: output/**/*.uf2
+          files: combined_output/*.uf2
