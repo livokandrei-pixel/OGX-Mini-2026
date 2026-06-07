@@ -31,59 +31,68 @@ void HIDHost::process_report(Gamepad& gamepad, uint8_t address, uint8_t instance
 
     std::memcpy(prev_report_in_.data(), report, len);
 
-    // Безопасно запрашиваем VID и PID текущего подключенного устройства через TinyUSB
+    // Запрашиваем VID и PID текущего подключенного устройства через TinyUSB
     uint16_t vid = 0;
     uint16_t pid = 0;
     tuh_vid_pid_get(address, &vid, &pid);
 
     Gamepad::PadIn gp_in;   
 
-    // ПЕРСОНАЛЬНЫЙ ДРАЙВЕР ДЛЯ GENIUS MAXFIRE G-12U VIBRATION (С АНАЛОГАМИ)
+    // ИДЕАЛЬНЫЙ НАТИВНЫЙ ДРАЙВЕР ДЛЯ GENIUS MAXFIRE G-12U VIBRATION (ПО РЕЗУЛЬТАТАМ ЗАХВАТА)
     if (vid == 0x0583 && pid == 0xA009)
     {
-        // ВРЕМЕННЫЙ ЛОГ: Выводит длину пакета и первые 8 байт в шестнадцатеричном виде (HEX) в COM-порт
-        printf("[Genius] len:%d -> %02X %02X %02X %02X %02X %02X %02X %02X\n", 
-               len, report[0], report[1], report[2], report[3], report[4], report[5], report[6], report[7]);
+        // 1. Парсим оси аналоговых стиков на основе лога (Байты 0, 1, 2, 3)
+        // Диапазон dinput 0..255 переводим в int16_t для Xbox, инвертируя оси Y (вверх = плюс)
+        uint8_t raw_lx = (len > 0) ? report[0] : 128;
+        uint8_t raw_ly = (len > 1) ? report[1] : 128;
+        uint8_t raw_rx = (len > 2) ? report[2] : 128;
+        uint8_t raw_ry = (len > 3) ? report[3] : 128;
 
-        // 1. Извлекаем позиции левого аналогового стика (Байты 0 и 1, центр 128)
-        uint8_t raw_lx = report[0];
-        uint8_t raw_ly = report[1];
         gp_in.joystick_lx = (static_cast<int16_t>(raw_lx) - 128) * 256;
-        gp_in.joystick_ly = (static_cast<int16_t>(raw_ly) - 128) * -256; // Инверсия Y под стандарт Xbox
-
-        // 2. Извлекаем позиции правого аналогового стика (Байты 2 и 3, центр 128)
-        uint8_t raw_rx = report[2];
-        uint8_t raw_ry = report[3];
+        gp_in.joystick_ly = (static_cast<int16_t>(raw_ly) - 128) * -256;
         gp_in.joystick_rx = (static_cast<int16_t>(raw_rx) - 128) * 256;
-        gp_in.joystick_ry = (static_cast<int16_t>(raw_ry) - 128) * -256; // Инверсия Y под стандарт Xbox
+        gp_in.joystick_ry = (static_cast<int16_t>(raw_ry) - 128) * -256;
 
-        // 3. Извлекаем блоки кнопок (Обычно упакованы с 4-го байта)
-        uint8_t b1 = report[4];
+        // 2. Парсим блок кнопок на основе лога (У Genius они идут в байтах 4 и 5)
+        uint8_t b1 = (len > 4) ? report[4] : 0;
         uint8_t b2 = (len > 5) ? report[5] : 0;
 
-        // Побитовое распределение физических кнопок геймпада
-        if (b1 & 0x01) gp_in.buttons |= gamepad.MAP_BUTTON_A;     // Кнопка 1
-        if (b1 & 0x02) gp_in.buttons |= gamepad.MAP_BUTTON_B;     // Кнопка 2
-        if (b1 & 0x04) gp_in.buttons |= gamepad.MAP_BUTTON_X;     // Кнопка 3
-        if (b1 & 0x08) gp_in.buttons |= gamepad.MAP_BUTTON_Y;     // Кнопка 4
-        if (b1 & 0x10) gp_in.buttons |= gamepad.MAP_BUTTON_LB;    // Кнопка 5
-        if (b1 & 0x20) gp_in.buttons |= gamepad.MAP_BUTTON_RB;    // Кнопка 6
-        if (b1 & 0x40) gp_in.buttons |= gamepad.MAP_BUTTON_BACK;  // Кнопка 7 (Select)
-        if (b1 & 0x80) gp_in.buttons |= gamepad.MAP_BUTTON_START; // Кнопка 8 (Start)
-
-        // Кнопки нажатия на сами аналоговые грибки (L3 и R3)
-        if (b2 & 0x01) gp_in.buttons |= gamepad.MAP_BUTTON_L3;    // Кнопка 9
-        if (b2 & 0x02) gp_in.buttons |= gamepad.MAP_BUTTON_R3;    // Кнопка 10
-
-        // 4. Обработка цифровой крестовины (D-Pad)
-        // В режиме "Analog" (светодиод горит) крестовина кодируется как Hat-Switch в нижних битах b1
-        uint8_t hat = b1 & 0x0F; 
+        // Распределяем биты кнопок (индексы сдвинуты на 1 относительно лога pygame)
+        if (b1 & 0x01) gp_in.buttons |= gamepad.MAP_BUTTON_A;     // Кнопка 1 (face_1)
+        if (b1 & 0x02) gp_in.buttons |= gamepad.MAP_BUTTON_B;     // Кнопка 2 (face_2)
+        if (b1 & 0x04) gp_in.buttons |= gamepad.MAP_BUTTON_X;     // Кнопка 3 (face_3)
+        if (b1 & 0x08) gp_in.buttons |= gamepad.MAP_BUTTON_Y;     // Кнопка 4 (face_4)
+        if (b1 & 0x10) gp_in.buttons |= gamepad.MAP_BUTTON_LB;    // Кнопка 5 (shoulder_l)
+        if (b1 & 0x20) gp_in.buttons |= gamepad.MAP_BUTTON_RB;    // Кнопка 6 (shoulder_r)
         
-        // Мапим явные положения Hat-Switch или дублируем с крайних зон левого стика для надежности
-        if (hat == 0x00 || raw_lx < 40)  gp_in.dpad |= gamepad.MAP_DPAD_LEFT;
-        if (hat == 0x02 || raw_lx > 215) gp_in.dpad |= gamepad.MAP_DPAD_RIGHT;
-        if (hat == 0x01 || raw_ly < 40)  gp_in.dpad |= gamepad.MAP_DPAD_UP;
-        if (hat == 0x03 || raw_ly > 215) gp_in.dpad |= gamepad.MAP_DPAD_DOWN;
+        // Аналоговые курки Xbox (Trigger L/R) вешаем на нижние курки Genius (Кнопки 7 и 8)
+        if (b1 & 0x40) gp_in.trigger_l = Range::MAX<uint8_t>;     // Кнопка 7 (trigger_l)
+        if (b1 & 0x80) gp_in.trigger_r = Range::MAX<uint8_t>;     // Кнопка 8 (trigger_r)
+
+        // Сервисные кнопки из второго байта
+        if (b2 & 0x01) gp_in.buttons |= gamepad.MAP_BUTTON_BACK;  // Кнопка 9 (select)
+        if (b2 & 0x02) gp_in.buttons |= gamepad.MAP_BUTTON_START; // Кнопка 10 (start)
+        if (b2 & 0x04) gp_in.buttons |= gamepad.MAP_BUTTON_L3;    // Кнопка 11 (stick_l3)
+        if (b2 & 0x08) gp_in.buttons |= gamepad.MAP_BUTTON_R3;    // Кнопка 12 (stick_r3)
+
+        // 3. Парсим крестовину (D-Pad) на основе данных о Hat 0
+        // У Genius состояние Hat-switch кодируется в байте 4 (обычно верхние 4 бита) или в байте 5
+        // Защитим чтение: проверяем стандартные dinput-смещения Hat-переключателя
+        uint8_t hat = (len > 4) ? (report[4] >> 4) : 0x0F; 
+        if (hat > 7) hat = b2 >> 4; // Проверка альтернативного смещения для старых ревизий
+
+        switch (hat)
+        {
+            case 0: gp_in.dpad |= gamepad.MAP_DPAD_UP; break;
+            case 1: gp_in.dpad |= gamepad.MAP_DPAD_UP | gamepad.MAP_DPAD_RIGHT; break;
+            case 2: gp_in.dpad |= gamepad.MAP_DPAD_RIGHT; break;
+            case 3: gp_in.dpad |= gamepad.MAP_DPAD_DOWN | gamepad.MAP_DPAD_RIGHT; break;
+            case 4: gp_in.dpad |= gamepad.MAP_DPAD_DOWN; break;
+            case 5: gp_in.dpad |= gamepad.MAP_DPAD_DOWN | gamepad.MAP_DPAD_LEFT; break;
+            case 6: gp_in.dpad |= gamepad.MAP_DPAD_LEFT; break;
+            case 7: gp_in.dpad |= gamepad.MAP_DPAD_UP | gamepad.MAP_DPAD_LEFT; break;
+            default: break;
+        }
     }
     else
     {
@@ -127,20 +136,20 @@ void HIDHost::process_report(Gamepad& gamepad, uint8_t address, uint8_t instance
         std::tie(gp_in.joystick_lx, gp_in.joystick_ly) = gamepad.scale_joystick_l(hid_joystick_data_.X, hid_joystick_data_.Y);
         std::tie(gp_in.joystick_rx, gp_in.joystick_ry) = gamepad.scale_joystick_r(hid_joystick_data_.Z, hid_joystick_data_.Rz);
 
-        if (hid_joystick_data_.buttons)  gp_in.buttons |= gamepad.MAP_BUTTON_X;
-        if (hid_joystick_data_.buttons)  gp_in.buttons |= gamepad.MAP_BUTTON_A;
-        if (hid_joystick_data_.buttons)  gp_in.buttons |= gamepad.MAP_BUTTON_B;
-        if (hid_joystick_data_.buttons)  gp_in.buttons |= gamepad.MAP_BUTTON_Y;
-        if (hid_joystick_data_.buttons)  gp_in.buttons |= gamepad.MAP_BUTTON_LB;
-        if (hid_joystick_data_.buttons)  gp_in.buttons |= gamepad.MAP_BUTTON_RB;
-        if (hid_joystick_data_.buttons)  gp_in.trigger_l = Range::MAX<uint8_t>;
-        if (hid_joystick_data_.buttons)  gp_in.trigger_r = Range::MAX<uint8_t>;
-        if (hid_joystick_data_.buttons)  gp_in.buttons |= gamepad.MAP_BUTTON_BACK;
-        if (hid_joystick_data_.buttons) gp_in.buttons |= gamepad.MAP_BUTTON_START;
-        if (hid_joystick_data_.buttons) gp_in.buttons |= gamepad.MAP_BUTTON_L3;
-        if (hid_joystick_data_.buttons) gp_in.buttons |= gamepad.MAP_BUTTON_R3;
-        if (hid_joystick_data_.buttons) gp_in.buttons |= gamepad.MAP_BUTTON_SYS;
-        if (hid_joystick_data_.buttons) gp_in.buttons |= gamepad.MAP_BUTTON_MISC;
+        if (hid_joystick_data_.buttons[1])  gp_in.buttons |= gamepad.MAP_BUTTON_X;
+        if (hid_joystick_data_.buttons[2])  gp_in.buttons |= gamepad.MAP_BUTTON_A;
+        if (hid_joystick_data_.buttons[3])  gp_in.buttons |= gamepad.MAP_BUTTON_B;
+        if (hid_joystick_data_.buttons[4])  gp_in.buttons |= gamepad.MAP_BUTTON_Y;
+        if (hid_joystick_data_.buttons[5])  gp_in.buttons |= gamepad.MAP_BUTTON_LB;
+        if (hid_joystick_data_.buttons[6])  gp_in.buttons |= gamepad.MAP_BUTTON_RB;
+        if (hid_joystick_data_.buttons[7])  gp_in.trigger_l = Range::MAX<uint8_t>;
+        if (hid_joystick_data_.buttons[8])  gp_in.trigger_r = Range::MAX<uint8_t>;
+        if (hid_joystick_data_.buttons[9])  gp_in.buttons |= gamepad.MAP_BUTTON_BACK;
+        if (hid_joystick_data_.buttons[10]) gp_in.buttons |= gamepad.MAP_BUTTON_START;
+        if (hid_joystick_data_.buttons[11]) gp_in.buttons |= gamepad.MAP_BUTTON_L3;
+        if (hid_joystick_data_.buttons[12]) gp_in.buttons |= gamepad.MAP_BUTTON_R3;
+        if (hid_joystick_data_.buttons[13]) gp_in.buttons |= gamepad.MAP_BUTTON_SYS;
+        if (hid_joystick_data_.buttons[14]) gp_in.buttons |= gamepad.MAP_BUTTON_MISC;
     }
 
     gamepad.set_pad_in(gp_in);
