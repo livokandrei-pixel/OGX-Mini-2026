@@ -38,48 +38,54 @@ void HIDHost::process_report(Gamepad& gamepad, uint8_t address, uint8_t instance
 
     Gamepad::PadIn gp_in;   
 
-    // ИДЕАЛЬНЫЙ НАТИВНЫЙ ДРАЙВЕР ДЛЯ GENIUS MAXFIRE G-12U VIBRATION (ПО РЕЗУЛЬТАТАМ ЗАХВАТА)
+    // ПОЛНЫЙ ИСПРАВЛЕННЫЙ НАТИВНЫЙ ДРАЙВЕР ДЛЯ GENIUS MAXFIRE G-12U VIBRATION
     if (vid == 0x0583 && pid == 0xA009)
     {
-        // 1. Парсим оси аналоговых стиков на основе лога (Байты 0, 1, 2, 3)
-        // Диапазон dinput 0..255 переводим в int16_t для Xbox, инвертируя оси Y (вверх = плюс)
-        uint8_t raw_lx = (len > 0) ? report[0] : 128;
-        uint8_t raw_ly = (len > 1) ? report[1] : 128;
-        uint8_t raw_rx = (len > 2) ? report[2] : 128;
-        uint8_t raw_ry = (len > 3) ? report[3] : 128;
+        // ЗАЩИТНЫЙ ФИЛЬТР: Если пакет слишком короткий, игнорируем, чтобы не вызвать сбой
+        if (len < 6)
+        {
+            tuh_hid_receive_report(address, instance);
+            return;
+        }
 
+        // 1. Аналоговые стики по осям из вашего лога (Байты 0, 1, 2, 3)
+        uint8_t raw_lx = report[0]; // axis 0
+        uint8_t raw_ly = report[1]; // axis 1
+        uint8_t raw_rx = report[2]; // axis 2
+        uint8_t raw_ry = report[3]; // axis 3
+
+        // Переводим в int16_t (-32768..32767). Инвертируем Y-оси согласно стандарту Xbox
         gp_in.joystick_lx = (static_cast<int16_t>(raw_lx) - 128) * 256;
         gp_in.joystick_ly = (static_cast<int16_t>(raw_ly) - 128) * -256;
         gp_in.joystick_rx = (static_cast<int16_t>(raw_rx) - 128) * 256;
         gp_in.joystick_ry = (static_cast<int16_t>(raw_ry) - 128) * -256;
 
-        // 2. Парсим блок кнопок на основе лога (У Genius они идут в байтах 4 и 5)
-        uint8_t b1 = (len > 4) ? report[4] : 0;
-        uint8_t b2 = (len > 5) ? report[5] : 0;
+        // 2. Чтение кнопок. Старые чипы Genius требуют инверсии (нажато = 0, отпущено = 1)
+        // Применяем побитовое отрицание (~), чтобы правильно поймать нажатия
+        uint8_t b1 = ~report[4]; // Кнопки 1-8
+        uint8_t b2 = ~report[5]; // Кнопки 9-12 и Hat
 
-        // Распределяем биты кнопок (индексы сдвинуты на 1 относительно лога pygame)
-        if (b1 & 0x01) gp_in.buttons |= gamepad.MAP_BUTTON_A;     // Кнопка 1 (face_1)
-        if (b1 & 0x02) gp_in.buttons |= gamepad.MAP_BUTTON_B;     // Кнопка 2 (face_2)
-        if (b1 & 0x04) gp_in.buttons |= gamepad.MAP_BUTTON_X;     // Кнопка 3 (face_3)
-        if (b1 & 0x08) gp_in.buttons |= gamepad.MAP_BUTTON_Y;     // Кнопка 4 (face_4)
-        if (b1 & 0x10) gp_in.buttons |= gamepad.MAP_BUTTON_LB;    // Кнопка 5 (shoulder_l)
-        if (b1 & 0x20) gp_in.buttons |= gamepad.MAP_BUTTON_RB;    // Кнопка 6 (shoulder_r)
+        // Раскладываем кнопки согласно индексам из лога захвата SDL/Pygame
+        if (b1 & 0x01) gp_in.buttons |= gamepad.MAP_BUTTON_A;     // button 0 (face_1)
+        if (b1 & 0x02) gp_in.buttons |= gamepad.MAP_BUTTON_B;     // button 1 (face_2)
+        if (b1 & 0x04) gp_in.buttons |= gamepad.MAP_BUTTON_X;     // button 2 (face_3)
+        if (b1 & 0x08) gp_in.buttons |= gamepad.MAP_BUTTON_Y;     // button 3 (face_4)
+        if (b1 & 0x10) gp_in.buttons |= gamepad.MAP_BUTTON_LB;    // button 4 (shoulder_l)
+        if (b1 & 0x20) gp_in.buttons |= gamepad.MAP_BUTTON_RB;    // button 5 (shoulder_r)
         
-        // Аналоговые курки Xbox (Trigger L/R) вешаем на нижние курки Genius (Кнопки 7 и 8)
-        if (b1 & 0x40) gp_in.trigger_l = Range::MAX<uint8_t>;     // Кнопка 7 (trigger_l)
-        if (b1 & 0x80) gp_in.trigger_r = Range::MAX<uint8_t>;     // Кнопка 8 (trigger_r)
+        // Мапим нижние курки как полноценные цифровые триггеры Xbox
+        if (b1 & 0x40) gp_in.trigger_l = Range::MAX<uint8_t>;     // button 6 (trigger_l)
+        if (b1 & 0x80) gp_in.trigger_r = Range::MAX<uint8_t>;     // button 7 (trigger_r)
 
-        // Сервисные кнопки из второго байта
-        if (b2 & 0x01) gp_in.buttons |= gamepad.MAP_BUTTON_BACK;  // Кнопка 9 (select)
-        if (b2 & 0x02) gp_in.buttons |= gamepad.MAP_BUTTON_START; // Кнопка 10 (start)
-        if (b2 & 0x04) gp_in.buttons |= gamepad.MAP_BUTTON_L3;    // Кнопка 11 (stick_l3)
-        if (b2 & 0x08) gp_in.buttons |= gamepad.MAP_BUTTON_R3;    // Кнопка 12 (stick_r3)
+        // Сервисные кнопки и нажатия на стики (Байт b2)
+        if (b2 & 0x01) gp_in.buttons |= gamepad.MAP_BUTTON_BACK;  // button 8 (select)
+        if (b2 & 0x02) gp_in.buttons |= gamepad.MAP_BUTTON_START; // button 9 (start)
+        if (b2 & 0x04) gp_in.buttons |= gamepad.MAP_BUTTON_L3;    // button 10 (stick_l3)
+        if (b2 & 0x08) gp_in.buttons |= gamepad.MAP_BUTTON_R3;    // button 11 (stick_r3)
 
-        // 3. Парсим крестовину (D-Pad) на основе данных о Hat 0
-        // У Genius состояние Hat-switch кодируется в байте 4 (обычно верхние 4 бита) или в байте 5
-        // Защитим чтение: проверяем стандартные dinput-смещения Hat-переключателя
-        uint8_t hat = (len > 4) ? (report[4] >> 4) : 0x0F; 
-        if (hat > 7) hat = b2 >> 4; // Проверка альтернативного смещения для старых ревизий
+        // 3. Точный разбор крестовины (D-Pad Hat 0)
+        // Восстанавливаем оригинальные (не инвертированные) биты для Hat-switch из байта 5
+        uint8_t hat = report[5] & 0x0F; 
 
         switch (hat)
         {
@@ -91,7 +97,7 @@ void HIDHost::process_report(Gamepad& gamepad, uint8_t address, uint8_t instance
             case 5: gp_in.dpad |= gamepad.MAP_DPAD_DOWN | gamepad.MAP_DPAD_LEFT; break;
             case 6: gp_in.dpad |= gamepad.MAP_DPAD_LEFT; break;
             case 7: gp_in.dpad |= gamepad.MAP_DPAD_UP | gamepad.MAP_DPAD_LEFT; break;
-            default: break;
+            default: break; // Все остальные значения (например, 8, 15) — покой крестовины
         }
     }
     else
